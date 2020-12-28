@@ -1,0 +1,134 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: Auto Scaling / Trigger GitLab Runners
+
+Parameters:
+  EventBusName:
+    Type: String
+    Description: Name of EventBridge EventBus to subscribe to events from
+  DefaultRunnerArn:
+    Type: String
+    Description: Arn of the default runner
+
+Globals:
+  Function:
+    Timeout: 30
+    Runtime: python3.7
+    MemorySize: 256
+
+Resources:
+  ##########################################################################
+  #  DynamoDB Table                                                        #
+  ##########################################################################
+  GitLabJobTagsMapping:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+      BillingMode: PAY_PER_REQUEST
+
+  ##########################################################################
+  #  EventBridge Rule                                                      #
+  ##########################################################################
+  GitLabJobEventBridgeRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: Trigger StepFunction on new Job
+      EventBusName: !Ref EventBusName
+      EventPattern: !Sub |
+        {
+          "detail": {
+            "object_kind": [
+              "build"
+            ],
+            "build_status": [
+              "created"
+            ]
+          },
+          "account": [
+              "${AWS::AccountId}"
+          ]
+        }
+      Name: gitlab-new-job-event-rule
+      State: ENABLED
+      Targets:
+        - Arn: !Ref ProcessGitLabJobEventStateMachineExpress
+          RoleArn: !GetAtt GitLabJobEventBridgeRuleRole.Arn
+          Id: gitlab-new-job-express-stepfunction
+
+  GitLabJobEventBridgeRuleRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - events.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: startstepfunction
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - states:StartExecution
+                  - states:StartSyncExecution
+                Resource: !Ref ProcessGitLabJobEventStateMachineExpress
+
+  ##########################################################################
+  #  Lambda functions                                                      #
+  ##########################################################################
+  LookupRunnerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/lookup/
+      Handler: lookup-runner.handler
+      Environment:
+        Variables:
+          RUNNERS_TABLE: !Ref GitLabJobTagsMapping
+          DEFAULT_RUNNER: !Ref DefaultRunnerArn
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref GitLabJobTagsMapping
+
+  TriggerLambdaRunnerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/trigger-lambda/
+      Handler: trigger.handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref GitLabJobTagsMapping
+        - LambdaInvokePolicy:
+            FunctionName: "" # Should probably be limited to a name-scope
+
+  ##########################################################################
+  #   STEP FUNCTION                                                        #
+  ##########################################################################
+  ProcessGitLabJobEventStateMachineExpress:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      DefinitionUri: statemachine/statemachinedef.asl.json
+      Tracing:
+        Enabled: true
+      DefinitionSubstitutions:
+        LookupRunnerArn: !GetAtt LookupRunnerFunction.Arn
+        TriggerLambdaArn: !GetAtt TriggerLambdaRunnerFunction.Arn
+      Policies:
+        - LambdaInvokePolicy:
+            FunctionName: !Ref LookupRunnerFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref TriggerLambdaRunnerFunction
+      Type: EXPRESS

@@ -1,0 +1,109 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: Infrastructure needed for GitLab Runners
+
+Parameters:
+  GitLabSecret:
+    Type: String
+    Description: The GitLab Secret sent in x-gitlab-Token header, used for authorization.
+
+Resources:
+  ECRRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: gitlab-runners
+
+  EventBridge:
+    Type: AWS::Events::EventBus
+    Properties:
+      Name: gitlab-webhook
+
+  GitLabWebHookHttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      DefinitionBody:
+        "Fn::Transform":
+          Name: "AWS::Include"
+          Parameters:
+            Location: "./api.yaml"
+      Auth:
+        DefaultAuthorizer: LambdaAuthorizer
+        Authorizers:
+          LambdaAuthorizer:
+            FunctionArn: !GetAtt AuthFunction.Arn
+            FunctionInvokeRole: !GetAtt InvokeAuthFunctionRole.Arn
+            Identity:
+              Headers:
+                - X-Gitlab-Token
+            AuthorizerPayloadFormatVersion: 2.0
+            EnableSimpleResponses: true
+
+  WebhookHttpApiRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service: "apigateway.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Policies:
+        - PolicyName: ApiDirectWriteEventBridge
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              Action:
+                - events:PutEvents
+              Effect: Allow
+              Resource:
+                - !Sub arn:aws:events:${AWS::Region}:${AWS::AccountId}:event-bus/${EventBridge}
+
+  AuthFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Timeout: 30
+      Runtime: python3.7
+      MemorySize: 256
+      CodeUri: AuthLambda
+      Handler: auth.handler
+      Environment:
+        Variables:
+          GITLAB_SECRET: !Ref GitLabSecret
+
+  InvokeAuthFunctionRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service: "apigateway.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Policies:
+        - PolicyName: InvokeAuthLambda
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              Action:
+                - lambda:InvokeFunction
+              Effect: Allow
+              Resource:
+                - !GetAtt AuthFunction.Arn
+
+Outputs:
+  ECRRepositoryUri:
+    Description: The Repository URI
+    Value: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ECRRepository}
+  ApiEndpoint:
+    Description: HTTP API endpoint URL
+    Value: !Sub https://${GitLabWebHookHttpApi}.execute-api.${AWS::Region}.amazonaws.com
+  EventBridge:
+    Description: EventBridge Name
+    Value: !GetAtt EventBridge.Name
+  AuthFunctionArn:
+    Description: ARN of the Auth function used by API Gateway.
+    Value: !GetAtt AuthFunction.Arn

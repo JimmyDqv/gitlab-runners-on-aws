@@ -1,0 +1,39 @@
+{
+    "Comment": "Run GitLab Runner Trigger / Auto Scaling",
+    "StartAt": "Lookup Runner Type",
+    "States": {
+        "Lookup Runner Type": {
+            "Type": "Task",
+            "Resource": "${LookupRunnerArn}",
+            "ResultPath": "$.RunnerDefinition",
+            "Retry": [
+                {
+                    "ErrorEquals": [
+                        "States.TaskFailed"
+                    ],
+                    "IntervalSeconds": 20,
+                    "MaxAttempts": 5,
+                    "BackoffRate": 10
+                }
+            ],
+            "Next": "What To Start?"
+        },
+        "What To Start?": {
+            "Type": "Choice",
+            "Choices": [
+                {
+                    "Variable": "$.RunnerDefinition.Type",
+                    "StringEquals": "LAMBDA",
+                    "Next": "Trigger Lambda"
+                }
+            ],
+            "Default": "Trigger Lambda"
+        },
+        "Trigger Lambda": {
+            "Type": "Task",
+            "Resource": "${TriggerLambdaArn}",
+            "ResultPath": "$.LambdaResult",
+            "End": true
+        }
+    }
+}
