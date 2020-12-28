@@ -14,7 +14,7 @@ function handler () {
 
     gitlab-runner run-single -u $URL -t $runner_token --description "aws-lambda-shell" --executor shell --docker-image alpine:3.7 --builds-dir "/tmp/" --max-builds 1
     
-    curl --request DELETE "https://gitlab.com/api/v4/runners" --form "token=$token"
+    curl --request DELETE "https://gitlab.com/api/v4/runners" --form "token=$runner_token"
 
     echo "Lambda Runner Completed!"
 }

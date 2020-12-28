@@ -17,6 +17,7 @@ The AutoScaler folder contain the infrastructure, and logic, to react on GitLab 
 ## Lambda Shell Runner
 
 The LambdaShellRunner folder contain a Lambda function that will run a [shell executor](https://docs.gitlab.com/runner/executors/shell.html). The Docker image has the AWS CLI v2 installed.
+Don't forget to update the REGISTRATION_TOKEN in start.sh file to your own token.
 
 ## Limitations
 
