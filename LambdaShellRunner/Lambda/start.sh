@@ -7,7 +7,7 @@ function handler () {
     REGISTRATION_TOKEN=abcdefgh123456
     URL=https://gitlab.com/
 
-    curl --request POST "https://gitlab.com/api/v4/runners" --form "token=$REGISTRATION_TOKEN" --form "description=aws-lambda-shell" --form "tag_list=aws,lamba,shell" > /tmp/registration.json
+    curl --request POST "https://gitlab.com/api/v4/runners" --form "token=$REGISTRATION_TOKEN" --form "description=aws-lambda-shell" --form "tag_list=aws,lambda,shell" > /tmp/registration.json
 
     id=$(jq -r ".id" /tmp/registration.json)
     runner_token=$(jq -r ".token" /tmp/registration.json)
