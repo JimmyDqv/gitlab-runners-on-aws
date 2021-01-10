@@ -8,7 +8,7 @@ logger.setLevel(logging.DEBUG)
 
 
 def handler(event, context):
-    # debug_print(json.dumps(event, indent=2))
+    debug_print(json.dumps(event, indent=2))
     runner = event['RunnerDefinition']
     start_lambda_sync(runner['Arn'], event)
 

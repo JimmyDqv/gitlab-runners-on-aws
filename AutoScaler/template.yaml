@@ -3,12 +3,38 @@ Transform: AWS::Serverless-2016-10-31
 Description: Auto Scaling / Trigger GitLab Runners
 
 Parameters:
+  Application:
+    Type: String
+    Description: Name of Application / Service that own the resources
   EventBusName:
     Type: String
     Description: Name of EventBridge EventBus to subscribe to events from
   DefaultRunnerArn:
     Type: String
     Description: Arn of the default runner
+  AmiId:
+    Type: AWS::EC2::Image::Id
+    Description: ID of the AMI to use for EC2 runners.
+  InstanceType:
+    Type: String
+    Description: Type of instance to use for EC2 runners.
+  SshKey:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: The SSH key to use to logon to EC2 runners.
+    Default: NONE
+  SecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: The Security Group to use for EC2 runners.
+  Subnets:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: List of subnets to use for EC2 runners.
+  SsmConfigPath:
+    Type: String
+    Description: The SSM parameter path containing configuration, e.g RegistrationToken and Url
+    Default: GitLabRunners
+
+Conditions:
+  SshKeySpecified: !Not [!Equals [!Ref SshKey, "NONE"]]
 
 Globals:
   Function:
@@ -36,7 +62,7 @@ Resources:
       BillingMode: PAY_PER_REQUEST
 
   ##########################################################################
-  #  EventBridge Rule                                                      #
+  #  EventBridge Rules                                                     #
   ##########################################################################
   GitLabJobEventBridgeRule:
     Type: AWS::Events::Rule
@@ -64,6 +90,35 @@ Resources:
           RoleArn: !GetAtt GitLabJobEventBridgeRuleRole.Arn
           Id: gitlab-new-job-express-stepfunction
 
+  GitLabJobCompletedEventBridgeRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: Trigger StepFunction on Job completed
+      EventBusName: !Ref EventBusName
+      EventPattern: !Sub |
+        {
+          "detail": {
+            "object_kind": [
+              "build"
+            ],
+            "build_status": [
+              "success",
+              "failed",
+              "canceled",
+              "skipped"
+            ]
+          },
+          "account": [
+              "${AWS::AccountId}"
+          ]
+        }
+      Name: gitlab-job-completed-event-rule
+      State: ENABLED
+      Targets:
+        - Arn: !Ref ProcessGitLabJobCompletedEventStateMachineExpress
+          RoleArn: !GetAtt GitLabJobCompletedEventBridgeRuleRole.Arn
+          Id: gitlab-job-completed-express-stepfunction
+
   GitLabJobEventBridgeRuleRole:
     Type: AWS::IAM::Role
     Properties:
@@ -87,6 +142,29 @@ Resources:
                   - states:StartSyncExecution
                 Resource: !Ref ProcessGitLabJobEventStateMachineExpress
 
+  GitLabJobCompletedEventBridgeRuleRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - events.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: startstepfunction
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - states:StartExecution
+                  - states:StartSyncExecution
+                Resource: !Ref ProcessGitLabJobCompletedEventStateMachineExpress
+
   ##########################################################################
   #  Lambda functions                                                      #
   ##########################################################################
@@ -109,10 +187,70 @@ Resources:
       CodeUri: lambdas/trigger-lambda/
       Handler: trigger.handler
       Policies:
-        - DynamoDBCrudPolicy:
-            TableName: !Ref GitLabJobTagsMapping
         - LambdaInvokePolicy:
-            FunctionName: "" # Should probably be limited to a name-scope
+            FunctionName: "" # Limit this to your name space
+
+  ScaleOutEc2Function:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/EC2/scaleout
+      Handler: scaleout.handler
+      Environment:
+        Variables:
+          AMI_ID: !Ref AmiId
+          INSTANCE_TYPE: !Ref InstanceType
+          SSH_KEY_NAME: !If
+            - SshKeySpecified
+            - !Ref SshKey
+            - !Ref AWS::NoValue
+          SECURITY_GROUP_ID: !Ref SecurityGroupId
+          SUBNETS: !Join
+            - ","
+            - !Ref Subnets
+          IAM_INSTANCE_PROFILE_NAME: !Ref EC2InstanceProfile
+          CONFIG_PATH: !Ref SsmConfigPath
+      Policies:
+        # SSMParameterReadPolicy Is always needed to get config from SSM
+        - SSMParameterReadPolicy:
+            ParameterName: !Ref SsmConfigPath
+        - Version: "2012-10-17"
+          Statement:
+            Action:
+              - ec2:*
+              - iam:*
+            Effect: Allow
+            Resource: "*"
+
+  ScaleInEc2Function:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/EC2/scalein
+      Handler: scalein.handler
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            Action:
+              - ec2:StopInstances
+              - ec2:TerminateInstances
+            Effect: Allow
+            Resource: "*"
+
+  UnregisterEc2RunnerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/EC2/unregister
+      Handler: unregister.handler
+      Environment:
+        Variables:
+          SSM_DOCUMENT: !Ref UnregisterDocument
+      Policies:
+        - AmazonSSMFullAccess
+
+  GetRunnerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/get-runner
+      Handler: get-runner.handler
 
   ##########################################################################
   #   STEP FUNCTION                                                        #
@@ -126,9 +264,90 @@ Resources:
       DefinitionSubstitutions:
         LookupRunnerArn: !GetAtt LookupRunnerFunction.Arn
         TriggerLambdaArn: !GetAtt TriggerLambdaRunnerFunction.Arn
+        ScaleOutEc2Arn: !GetAtt ScaleOutEc2Function.Arn
+        ScaleInEc2Arn: !GetAtt ScaleInEc2Function.Arn
       Policies:
         - LambdaInvokePolicy:
             FunctionName: !Ref LookupRunnerFunction
         - LambdaInvokePolicy:
             FunctionName: !Ref TriggerLambdaRunnerFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref ScaleOutEc2Function
+        - LambdaInvokePolicy:
+            FunctionName: !Ref ScaleInEc2Function
       Type: EXPRESS
+
+  ProcessGitLabJobCompletedEventStateMachineExpress:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      DefinitionUri: statemachine/statemachinecompleteddef.asl.json
+      Tracing:
+        Enabled: true
+      DefinitionSubstitutions:
+        GetRunnerArn: !GetAtt GetRunnerFunction.Arn
+        UnregisterEc2Arn: !GetAtt UnregisterEc2RunnerFunction.Arn
+        ScaleInEc2Arn: !GetAtt ScaleInEc2Function.Arn
+      Policies:
+        - LambdaInvokePolicy:
+            FunctionName: !Ref GetRunnerFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref UnregisterEc2RunnerFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref ScaleInEc2Function
+      Type: EXPRESS
+
+  ##########################################################################
+  #   Unregister Runner / SSM Document                                     #
+  ##########################################################################
+  UnregisterDocument:
+    Type: AWS::SSM::Document
+    Properties:
+      DocumentType: Command
+      Tags:
+        - Key: Name
+          Value: gitlab-unregister-runner
+      Content:
+        schemaVersion: "2.2"
+        description: Command Document unregister GitLab Runner
+        mainSteps:
+          - action: "aws:runShellScript"
+            name: "deregister"
+            inputs:
+              runCommand:
+                - sudo -s
+                - token=$(wq -i toml .runners[0].token /etc/gitlab-runner/config.toml)
+                - echo Running command gitlab-runner unregister --url https://gitlab.com/ --token $token
+                - gitlab-runner unregister --url https://gitlab.com/ --token $token
+
+  ##########################################################################
+  #   EC2 Runner Resources                                                 #
+  ##########################################################################
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      ManagedPolicyArns:
+        # AmazonEC2RoleforSSM Is always needed to to able to run SSM Documents.
+        - arn:aws:iam::aws:policy/service-role/AmazonEC2RoleforSSM
+      Policies:
+        - PolicyName: admin
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "*"
+                Resource: "*" # Admin rights, should reflect what is needed!
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action: sts:AssumeRole
+
+  EC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref InstanceRole

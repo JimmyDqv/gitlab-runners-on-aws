@@ -8,7 +8,6 @@ logger.setLevel(logging.DEBUG)
 
 
 def handler(event, context):
-    # debug_print(json.dumps(event, indent=2))
     job_name = get_job_name(event)
     debug_print(f"Job name: {job_name}")
     runner = find_runner_for_job(job_name=job_name)
@@ -35,10 +34,14 @@ def find_runner_for_job(job_name):
     )
 
     if len(response['Items']) > 0:
-        return {
-            "arn": response['Items'][0]['arn']['S'],
+        runner = {
             "type": response['Items'][0]['type']['S']
         }
+        if runner['type'] == 'LAMBDA':
+            runner['arn'] = response['Items'][0]['arn']['S'],
+        else:
+            runner['arn'] = '-'
+        return runner
 
     # No runner found, return default
     return {

@@ -1,0 +1,44 @@
+{
+    "Comment": "GitLab Job Completed",
+    "StartAt": "Get Runner Information",
+    "States": {
+        "Get Runner Information": {
+            "Type": "Task",
+            "Resource": "${GetRunnerArn}",
+            "ResultPath": "$.RunnerDefinition",
+            "Next": "Runner Type Choice"
+        },
+        "Runner Type Choice": {
+            "Type": "Choice",
+            "Choices": [
+                {
+                    "Variable": "$.RunnerDefinition.Type",
+                    "StringEquals": "LAMBDA",
+                    "Next": "Not EC2"
+                },
+                {
+                    "Variable": "$.RunnerDefinition.Type",
+                    "StringEquals": "EC2",
+                    "Next": "Unregister EC2 Runner"
+                }
+            ],
+            "Default": "Not EC2"
+        },
+        "Not EC2": {
+            "Type": "Pass",
+            "End": true
+        },
+        "Unregister EC2 Runner": {
+            "Type": "Task",
+            "Resource": "${UnregisterEc2Arn}",
+            "ResultPath": "$.EC2Action",
+            "Next": "Terminate EC2 Instance"
+        },
+        "Terminate EC2 Instance": {
+            "Type": "Task",
+            "Resource": "${ScaleInEc2Arn}",
+            "ResultPath": "$.EC2Action",
+            "End": true
+        }
+    }
+}

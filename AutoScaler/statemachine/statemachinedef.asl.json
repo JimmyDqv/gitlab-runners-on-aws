@@ -25,6 +25,11 @@
                     "Variable": "$.RunnerDefinition.Type",
                     "StringEquals": "LAMBDA",
                     "Next": "Trigger Lambda"
+                },
+                {
+                    "Variable": "$.RunnerDefinition.Type",
+                    "StringEquals": "EC2",
+                    "Next": "Trigger EC2"
                 }
             ],
             "Default": "Trigger Lambda"
@@ -33,6 +38,12 @@
             "Type": "Task",
             "Resource": "${TriggerLambdaArn}",
             "ResultPath": "$.LambdaResult",
+            "End": true
+        },
+        "Trigger EC2": {
+            "Type": "Task",
+            "Resource": "${ScaleOutEc2Arn}",
+            "ResultPath": "$.EC2Action",
             "End": true
         }
     }
