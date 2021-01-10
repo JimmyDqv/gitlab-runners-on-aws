@@ -2,45 +2,38 @@ AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
 Description: GitLab Lambda Shell Runner
 
+Parameters:
+  SsmConfigPath:
+    Type: String
+    Description: The SSM parameter path containing configuration, e.g RegistrationToken and Url
+    Default: /GitLabRunners
+
 Globals:
-  # Update to reflect the need.
+  # This should reflect what the Runner need.
   Function:
-    Timeout: 180
+    Timeout: 120
     MemorySize: 5000
 
 Resources:
   GitLabRunnerShellFunction:
     Type: AWS::Serverless::Function
     Properties:
-      Role: !GetAtt AdminRole.Arn
       PackageType: Image
+      Policies:
+        # SSMParameterReadPolicy Is always needed to get config from SSM
+        - SSMParameterReadPolicy:
+            ParameterName: !Ref SsmConfigPath
+          # This should reflect what the Runner need, least privilege.
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - "*"
+              Resource: "*"
     Metadata:
       Dockerfile: Dockerfile
       DockerContext: ./Lambda
       DockerTag: v1
-
-  AdminRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service:
-                - lambda.amazonaws.com
-            Action:
-              - sts:AssumeRole
-      Policies:
-        # This should reflect what the Runner need, least privilege.
-        - PolicyName: admin
-          PolicyDocument:
-            Version: 2012-10-17
-            Statement:
-              - Effect: Allow
-                Action:
-                  - "*"
-                Resource: "*"
 
 Outputs:
   GitLabRunnerShellFunctionArn:
