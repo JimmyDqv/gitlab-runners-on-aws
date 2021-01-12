@@ -1,0 +1,13 @@
+{
+    "jobs": [
+        {
+            "type": "LAMBDA | EC2",
+            "name": "<job-name>",
+            "tags": [
+                "tag",
+                "tag"
+            ],
+            "lambdaArn": "<Lambda-Arn>"
+        }
+    ]
+}
