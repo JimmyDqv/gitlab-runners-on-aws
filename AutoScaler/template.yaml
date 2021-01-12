@@ -3,9 +3,6 @@ Transform: AWS::Serverless-2016-10-31
 Description: Auto Scaling / Trigger GitLab Runners
 
 Parameters:
-  Application:
-    Type: String
-    Description: Name of Application / Service that own the resources
   EventBusName:
     Type: String
     Description: Name of EventBridge EventBus to subscribe to events from
