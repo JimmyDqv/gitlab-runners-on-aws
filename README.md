@@ -44,7 +44,7 @@ Don't forget to update the REGISTRATION_TOKEN in start.sh file to your own token
 
 ## EC2 Runner
 
-Since it's not recommended not to run Docker in Docker, also not supported by GitLab runners, there is a need for a EC2 based runner for these kinds of jobs. For the auto scaling to be fast and to work properly a AMI should be pre-baked. There are some requirements on software that need to be installed on the EC2 instance. See [ami-preparation.md](ami-preparation) for details.
+Since it's not recommended not to run Docker in Docker, also not supported by GitLab runners, there is a need for a EC2 based runner for these kinds of jobs. For the auto scaling to be fast and to work properly a AMI should be pre-baked. There are some requirements on software that need to be installed on the EC2 instance. See [ami-preparation](ami-preparation.md) for details.
 
 ## Limitations
 
