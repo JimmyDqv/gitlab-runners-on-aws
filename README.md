@@ -44,11 +44,11 @@ Don't forget to update the REGISTRATION_TOKEN in start.sh file to your own token
 
 ## EC2 Runner
 
-Since it's not recommended not to run Docker in Docker, also not supported by GitLab runners, there is a need for a EC2 based runner for these kinds of jobs. For the auto scaling to be fast and to work properly a AMI should be pre-baked. There are some requirements on software that need to be installed on the EC2 instance. See [ami-preparation](ami-preparation.md) for details.
+Since it's not recommended to run Docker in Docker, also not supported by GitLab runners, there is a need for a EC2 based runner for these kinds of jobs. If you like to do Docker builds make sure to run those jobs in an EC2 Shell Runner. For the auto scaling to be fast and to work properly a AMI should be pre-baked. There are some requirements on software that need to be installed on the EC2 instance. See [ami-preparation](ami-preparation.md) for details.
 
 ## Limitations
 
-Since the jobs are run inside a Docker container it's not recommended to do any Docker builds, since [running Docker in Docker is not recommended / supported.](https://docs.gitlab.com/runner/executors/docker.html#limitations)
+[GitLab API don't supply the tags as part of the response.](https://gitlab.com/gitlab-org/gitlab/-/issues/24488)  
 
 ## Installation
 
